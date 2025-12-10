@@ -1,0 +1,405 @@
+---
+title: "nvda_orcl"
+author: "Oleksandra Krykun, Daryna Lycachenko, Tobiasz Jasiński"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+**Libraries**
+```{r}
+# install.packages("dplyr")
+# install.packages("quantmod")
+# install.packages("moments")
+# install.packages("ggplot2")
+# install.packages("gridExtra")
+# install.packages("fitdistrplus")
+# install.packages("marida")
+# install.packages("nortest")
+# install.packages("copula")
+
+suppressPackageStartupMessages(library(dplyr))
+suppressPackageStartupMessages(library(quantmod))
+suppressPackageStartupMessages(library(moments))
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(library(gridExtra))
+suppressPackageStartupMessages(library(fitdistrplus))
+suppressPackageStartupMessages(library(nortest))
+suppressPackageStartupMessages(library(copula))
+suppressPackageStartupMessages(library(plotly))
+```
+
+**Data Collecting**
+```{r}
+nvda <- getSymbols("NVDA", src = "yahoo", from = "2020-10-30", to = "2025-10-30", auto.assign = FALSE)[,6] # "yyyy-mm-dd"
+orcl <- getSymbols("ORCL", src = "yahoo", from = "2020-10-30", to = "2025-10-30", auto.assign = FALSE)[,6] # "yyyy-mm-dd"
+```
+
+**Data Plotting**
+```{r}
+Sys.setlocale("LC_TIME", "English")
+plot(nvda, main = "NVDA Stock Price (2020-2025)", col = "darkgreen", lwd = 2)
+plot(orcl, main = "ORCL Stock Price (2020-2025)", col = "darkblue", lwd = 2)
+
+plot(nvda, main = "NVDA vs ORCL Stock Price (2020-2025)", 
+     col = "darkgreen", lwd = 2, 
+     ylab = "Price", xlab = "Date",
+     ylim = c(min(c(nvda, orcl)), max(c(nvda, orcl))))
+
+lines(orcl, col = "darkblue", lwd = 2)
+
+# Add a legend
+legend("topleft", 
+       legend = c("NVIDIA (NVDA)", "Oracle (ORCL)"), 
+       col = c("darkgreen", "darkblue"), 
+       lwd = 2, 
+       bty = "n")
+```
+
+
+**Obliczanie stop strat**
+```{r}
+nvda_loss <- round(c(NA, -diff(as.numeric(Cl(to.monthly(nvda)))) / head(as.numeric(Cl(to.monthly(nvda))), -1) * 100), 2)
+orcl_loss <- round(c(NA, -diff(as.numeric(Cl(to.monthly(orcl)))) / head(as.numeric(Cl(to.monthly(orcl))), -1) * 100), 2)
+nvda_monthly <- as.numeric(Cl(to.monthly(nvda)))
+orcl_monthly <- as.numeric(Cl(to.monthly(orcl)))
+
+loss_data <- data.frame(
+  Data = index(to.monthly(nvda)),
+  nvda_close = nvda_monthly,
+  nvda_loss = nvda_loss,
+  orcl_close = orcl_monthly,
+  orcl_loss = orcl_loss
+)
+loss_data <- loss_data %>% filter(!is.na(nvda_loss))
+```
+
+**Statystyki opisowe**
+```{r}
+summary_stats <- data.frame(
+  Statistic = c("N", "Średnia", "Mediana", "Wariancja", "Odchylenie standardowe", "Skośność", "Kurtoza"),
+  NVDA = c(
+    length(na.omit(nvda_loss)),
+    mean(nvda_loss, na.rm = TRUE),
+    median(nvda_loss, na.rm = TRUE),
+    var(nvda_loss, na.rm = TRUE),
+    sd(nvda_loss, na.rm = TRUE),
+    skewness(nvda_loss, na.rm = TRUE),
+    kurtosis(nvda_loss, na.rm = TRUE) - 3
+  ),
+  ORCL = c(
+    length(na.omit(orcl_loss)),
+    mean(orcl_loss, na.rm = TRUE),
+    median(orcl_loss, na.rm = TRUE),
+    var(orcl_loss, na.rm = TRUE),
+    sd(orcl_loss, na.rm = TRUE),
+    skewness(orcl_loss, na.rm = TRUE),
+    kurtosis(orcl_loss, na.rm = TRUE) - 3
+  )
+)
+
+summary_stats
+```
+
+
+**Testy normalności**
+```{r}
+shapiro.test(loss_data$nvda_loss)
+ad.test(loss_data$nvda_loss)
+
+shapiro.test(loss_data$orcl_loss)
+ad.test(loss_data$orcl_loss)
+```
+
+**Histogramy**
+```{r}
+par(mfrow = c(1, 2), mar = c(5, 4, 3, 1))
+
+# Histogram NVDA
+h1 <- hist(loss_data$nvda_loss, 
+     breaks = 10,
+     main = "Rozkład L_nvda",
+     xlab = "L_nvda",
+     ylab = "Gęstość",
+     col = rgb(0.5, 0.7, 0.9, 0.6),
+     border = "white",
+     freq = FALSE,
+     las = 1,
+     xaxt = "n",
+     cex.main = 1.3,
+     cex.lab = 1.1)
+axis(1, at = h1$breaks, labels = round(h1$breaks, 1), las = 2, cex.axis = 0.8)
+curve(dnorm(x, mean = mean(loss_data$nvda_loss), sd = sd(loss_data$nvda_loss)),
+      add = TRUE, col = "darkblue", lwd = 2.5)
+
+# Histogram ORCL
+h2 <- hist(loss_data$orcl_loss,
+     breaks = 10,
+     main = "Rozkład L_orcl",
+     xlab = "L_orcl",
+     ylab = "Gęstość",
+     col = rgb(0.5, 0.7, 0.9, 0.6),
+     border = "white",
+     freq = FALSE,
+     las = 1,
+     xaxt = "n",
+     cex.main = 1.3,
+     cex.lab = 1.1)
+axis(1, at = h2$breaks, labels = round(h2$breaks, 1), las = 2, cex.axis = 0.8)
+curve(dnorm(x, mean = mean(loss_data$orcl_loss), sd = sd(loss_data$orcl_loss)),
+      add = TRUE, col = "darkblue", lwd = 2.5)
+
+par(mfrow = c(1, 1))
+```
+
+**Parametry rozkładu normalnego**
+```{r}
+mean_nvda <- mean(loss_data$nvda_loss)
+sd_nvda <- sd(loss_data$nvda_loss)
+
+mean_orcl <- mean(loss_data$orcl_loss)
+sd_orcl <- sd(loss_data$orcl_loss)
+
+print(paste("Średnia NVDA:", round(mean_nvda, 2), "%"))
+print(paste("Odchylenie standardowe NVDA:", round(sd_nvda, 2), "%"))
+print(paste("Średnia ORCL:", round(mean_orcl, 2), "%"))
+print(paste("Odchylenie standardowe ORCL:", round(sd_orcl, 2), "%"))
+```
+**VaR**
+```{r}
+empirical_nvda_VaR <- quantile(loss_data$nvda_loss, probs = 0.95)
+empirical_orcl_VaR <- quantile(loss_data$orcl_loss, probs = 0.95)
+
+theoretical_nvda_VaR <- mean_nvda + sd_nvda * qnorm(0.95,mean=0,sd=1)
+theoretical_orcl_VaR <- mean_orcl + sd_orcl * qnorm(0.95,mean=0,sd=1)
+
+print(paste("Empiryczny VaR NVDA (95%):", round(empirical_nvda_VaR, 2), "%"))
+print(paste("Teoretyczny VaR NVDA (95%):", round(theoretical_nvda_VaR, 2), "%"))
+print(paste("Empiryczny VaR ORCL (95%):", round(empirical_orcl_VaR, 2), "%"))
+print(paste("Teoretyczny VaR ORCL (95%):", round(theoretical_orcl_VaR, 2), "%"))
+```
+**Expected Shortfall**
+```{r}
+ES_empirical_nvda <- mean(loss_data$nvda_loss[loss_data$nvda_loss >= empirical_nvda_VaR])
+ES_empirical_orcl <- mean(loss_data$orcl_loss[loss_data$orcl_loss >= empirical_orcl_VaR])
+         
+ES_theoretical_nvda1 <- mean_nvda + sd_nvda * (dnorm(qnorm(0.95)) / (1 - 0.95))
+ES_theoretical_orcl1 <- mean_orcl + sd_orcl * (dnorm(qnorm(0.95)) / (1 - 0.95))
+                                            
+print(paste("NVIDIA - Wartość wyznaczona za pomocą MPWL:", round(ES_empirical_nvda, 2), "%"))
+print(paste("Oracle - Wartość wyznaczona za pomocą MPWL:", round(ES_empirical_orcl, 2), "%"))
+
+print(paste("NVIDIA - Wartość wyznaczona za pomocą wzoru analitycznego:", round(ES_theoretical_nvda1, 2), "%"))
+print(paste("Oracle - Wartość wyznaczona za pomocą wzoru analitycznego:", round(ES_theoretical_orcl1, 2), "%"))
+```
+**VaR & ES Vizualizacja**
+```{r}
+# ORCL
+d_orcl <- density(loss_data$orcl_loss)
+plot(d_orcl, main="VaR & ES (α=0.95): ORCL", xlab="Loss (%)", lwd=2, col="darkblue")
+polygon(d_orcl, col=rgb(0,0,1,0.2), border="darkblue")
+abline(v=c(empirical_orcl_VaR, theoretical_orcl_VaR), col="darkblue", lty=c(2,3), lwd=2)
+points(ES_empirical_orcl, 0, pch=19, col="red", cex=1.3)
+points(ES_theoretical_orcl1, 0, pch=19, col="orange", cex=1.3)
+
+# Add normal density curve (μ = -3.31, σ = 10.43)
+curve(dnorm(x, mean = -3.31, sd = 10.43),
+      add = TRUE, col = "black", lwd = 2, lty = 1)
+
+legend("topleft",
+       legend=c("Empirical VaR","Theoretical VaR","Empirical ES","Theoretical ES","Normal(μ=-3.31, σ=10.43)"),
+       col=c("darkblue","darkblue","red","orange","black"),
+       lty=c(2,3,NA,NA,1), pch=c(NA,NA,19,19,NA), lwd=2, bty="n")
+
+# NVDA
+d_nvda <- density(loss_data$nvda_loss)
+plot(d_nvda, main="VaR & ES (α=0.95): NVDA", xlab="Loss (%)", lwd=2, ylim=c(0, 0.03), col="darkgreen")
+polygon(d_nvda, col=rgb(0,1,0,0.2), border="darkgreen")
+#abline(v=c(empirical_nvda_VaR, theoretical_nvda_VaR), col="darkgreen", lty=c(2,3), lwd=2)
+points(ES_empirical_nvda, 0, pch=19, col="red", cex=1.3)
+points(ES_theoretical_nvda1, 0, pch=19, col="orange", cex=1.3)
+
+# Add normal density curve (μ = -4.27, σ = 13.59)
+curve(dnorm(x, mean = -5.8, sd = 14.51),
+      add = TRUE, col = "black", lwd = 2, lty = 1)
+
+legend("topright",
+       legend=c("Empirical VaR","Theoretical VaR","Empirical ES","Theoretical ES","Normal(μ=-4.27, σ=13.59)"),
+       col=c("darkgreen","darkgreen","red","orange","black"),
+       lty=c(2,3,NA,NA,1), pch=c(NA,NA,19,19,NA), lwd=2, bty="n")
+
+```
+
+**Dane dla portfela dwóch akcji**
+```{r}
+laczny <- data.frame(nvda = loss_data$nvda_loss, orcl = loss_data$orcl_loss)
+```
+
+**Mardina test**
+test pokazuje że nie mamy rozkładu normalnego, ale już kod nie dziala bo zostala zmieniona versja R
+```{r}
+# rezultat_mardia <- mvn(laczny, mvn_test = "mardia")
+# rezultat_mardia
+```
+
+**Dopasowanie kopuly**
+```{r}
+# Przekształć dane na rozkłady jednostajne [0,1]
+u_data <- pobs(as.matrix(laczny))
+
+# A. Kopuły Archimedejskie
+fit_clayton <- fitCopula(claytonCopula(), u_data, method='ml')
+fit_frank <- fitCopula(frankCopula(), u_data, method='ml')
+fit_gumbel <- fitCopula(gumbelCopula(), u_data, method='ml')
+
+# B. Kopuła eliptyczna
+fit_t <- fitCopula(tCopula(), u_data, method='ml')
+fit_normal <- fitCopula(normalCopula(), u_data, method='ml')
+
+# Stwórz tabelę porównawczą
+comparison <- data.frame(
+  Kopula = c("Clayton", "Frank", "Gumbel", "t-Student", "Normal"),
+  LogLik = c(logLik(fit_clayton), logLik(fit_frank), 
+             logLik(fit_gumbel), logLik(fit_t), logLik(fit_normal)),
+  AIC = c(AIC(fit_clayton), AIC(fit_frank), 
+          AIC(fit_gumbel), AIC(fit_t), AIC(fit_normal)),
+  BIC = c(BIC(fit_clayton), BIC(fit_frank), 
+          BIC(fit_gumbel), BIC(fit_t), BIC(fit_normal))
+)
+
+# Posortuj wyniki
+comparison[order(comparison$AIC),]  # Najniższe AIC = najlepsze
+```
+```{r}
+library(plotly)
+
+# Generate grid
+grid_seq <- seq(0.01, 0.99, length.out = 30)
+grid <- expand.grid(u = grid_seq, v = grid_seq)
+
+# Calculate values
+dens_vals <- dCopula(as.matrix(grid), gumbel_copula)
+dist_vals <- pCopula(as.matrix(grid), gumbel_copula)
+
+# Create matrices
+dens_matrix <- matrix(dens_vals, 30, 30)
+dist_matrix <- matrix(dist_vals, 30, 30)
+
+# Distribution plot  
+plot_ly(z = ~dist_matrix, type = "surface", colorscale = "Reds") %>%
+  layout(scene = list(xaxis = list(title = "u"),
+                      yaxis = list(title = "v"),
+                      zaxis = list(title = "C(u,v)")))
+```
+
+**Wizualizacja kopuli 2D & 3D**
+```{r}
+# 2D CONTOUR PLOT OF COPULA DENSITY
+
+# 1. Grid
+nx <- 100
+u <- seq(0, 1, length.out = nx)
+v <- seq(0, 1, length.out = nx)
+grid <- expand.grid(u = u, v = v)
+
+# 2. Copula density matrix
+z <- matrix(
+  dCopula(cbind(grid$u, grid$v), fit_gumbel@copula),
+  nrow = nx, 
+  ncol = nx
+)
+
+# 3. Plotly contour + heatmap
+fig2D <- plot_ly(
+  x = u, 
+  y = v, 
+  z = z,
+  type = "contour",
+  colorscale = "Viridis",
+  contours = list(
+    coloring = "heatmap",
+    showlabels = TRUE
+  )
+) %>%
+  layout(
+    title = "2D Density Contour Plot – Gumbel Copula",
+    xaxis = list(title = "u (NVDA)"),
+    yaxis = list(title = "v (ORCL)")
+  )
+
+fig2D
+
+# 3D
+# 1. Define Gumbel copula
+gumbel_theta <- 1.651
+gumbel_cop <- gumbelCopula(param = gumbel_theta, dim = 2)
+
+# 2. Grid
+nx <- 100
+u <- seq(0, 1, length.out = nx)
+v <- seq(0, 1, length.out = nx)
+grid <- expand.grid(u = u, v = v)
+
+# 3. Copula density
+z <- matrix(dCopula(cbind(grid$u, grid$v), gumbel_cop), nrow = nx, ncol = nx)
+
+# 4. 3D Surface Plot
+fig <- plot_ly(x = u, y = v, z = z) %>%
+  add_surface(contours = list(
+    z = list(show=TRUE, usecolormap=TRUE, highlightcolor="#ff0000", project=list(z=TRUE))
+  )) %>%
+  layout(
+    title = "3D Density Surface – Gumbel Copula",
+    scene = list(
+      xaxis = list(title = "u (NVDA)"),
+      yaxis = list(title = "v (ORCL)"),
+      zaxis = list(title = "Density")
+    )
+  )
+
+fig
+```
+
+**Tabela & Wykres portfolio**
+```{r}
+# 1. Wygeneruj dane z kopuły (100 000 obserwacji)
+cop_data <- rCopula(100000, fit_gumbel@copula)
+
+# 2. Przekształć na rozkłady brzegowe
+nvda_sim <- qnorm(cop_data[,1], mean_nvda, sd_nvda)  
+orcl_sim <- qnorm(cop_data[,2], mean_orcl, sd_orcl)
+
+# wagi beta
+beta_seq <- seq(0, 1, 0.1)
+results <- data.frame(beta = beta_seq, VaR = NA, ES = NA)
+
+for (i in 1:length(beta_seq)) {
+  beta <- beta_seq[i]
+  portfolio <- beta * nvda_sim + (1-beta) * orcl_sim
+  
+  VaR_95 <- quantile(portfolio, 0.95)
+  ES_95 <- mean(portfolio[portfolio >= VaR_95])
+  
+  results$VaR[i] <- round(VaR_95, 6)
+  results$ES[i] <- round(ES_95, 6)
+}
+
+
+# Wykres
+par(mfrow=c(1,2))
+
+plot(results$beta, results$VaR, type="l", lwd=2,
+     main="VaR (95%)", xlab="Weight on NVDA", ylab="VaR")
+grid()
+
+plot(results$beta, results$ES, type="l", lwd=2,
+     main="ES (95%)", xlab="Weight on NVDA", ylab="ES")
+grid()
+
+# Tabela
+print(results)
+```
+
+
+
+
+
